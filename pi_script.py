@@ -54,7 +54,9 @@ class HonoMqttDevice:
             self.logger.info(f"Received message on {msg.topic}: {msg.payload.decode()}")
             payload = json.loads(msg.payload)
 
+
             #Here i insert what messages i want to extract!
+            # I extract the messages about forwarder and stuff 
         except Exception as e:
             self.logger.error(f"Error Processing message: {e}")
         
@@ -138,6 +140,9 @@ class HonoMqttDevice:
         topic = "telemetry"
 
         #here i put to start the measurement propably 
+
+
+
 
         device_ip = self.get_device_ip()
 
