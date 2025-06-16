@@ -53,15 +53,33 @@ class HonoMqttDevice:
         try:
             self.logger.info(f"Received message on {msg.topic}: {msg.payload.decode()}")
             payload = json.loads(msg.payload)
-
-
             #Here i insert what messages i want to extract!
             # I extract the messages about forwarder and stuff 
+            # and i execute the datatransfer measurement and i save the result.json
         except Exception as e:
             self.logger.error(f"Error Processing message: {e}")
+
+    
+
+    def get_device_ip(self):
+        try:
+            # Get the IP address of the device on the wlan0 interface
+            command = "hostname -I | awk '{print $1}'"
+            result = subprocess.run(command, shell=True, capture_output=True, text=True)
+            device_ip = result.stdout.strip()
+            if device_ip:
+                return device_ip
+            else:
+                self.logger.error("No IP address found for wlan0")
+                return "0.0.0.0"
+        except Exception as e:
+            self.logger.error(f"Error fetching device IP: {e}")
+            return "0.0.0.0"
         
-    def raspberryPiMeasurements():
-        
+
+
+
+    def dataTransferMeasurement(self, role):
         if role == "sender":
             print("[INFO] Acting as sender...")
 
@@ -74,26 +92,7 @@ class HonoMqttDevice:
                     "--json"
                     ], check=True, stdout=outfile)
 
-                print("[SUCCESS] iPerf3 test completed. Parsing result.json...")
-
-                # Load the JSON data from the result file
-                with open("result.json", "r") as file:
-                    data = json.load(file)
-
-                # Extract transfer rates
-                sum_sent = data['end']['sum_sent']
-                sum_received = data['end']['sum_received']
-                sent_rate = sum_sent['bits_per_second']
-                received_rate = sum_received['bits_per_second']
-
-                # Print results
-                print(f"Sent Rate: {sent_rate / 1e6:.2f} Mbps")
-                print(f"Received Rate: {received_rate / 1e6:.2f} Mbps")
-
-            except subprocess.CalledProcessError as e:
-            print(f"[ERROR] Failed to run iperf3 as sender: {e}")
-            except (json.JSONDecodeError, KeyError) as e:
-            print(f"[ERROR] Failed to parse result.json: {e}")
+                print("[SUCCESS] iPerf3 test completed")
 
         elif role == "receiver":
             print("[INFO] Acting as receiver...")
@@ -114,7 +113,7 @@ class HonoMqttDevice:
                     status = f.read().strip()
             print(f"IP forwarding is set to: {status}")
 
-            our_ip = get_our_ip(sender_ip_
+            our_ip = self.get_device_ip()
 
             if not our_ip:
                 print("[ERROR] Could not determine our IP address for routing")
@@ -136,26 +135,43 @@ class HonoMqttDevice:
 
 
 
-    def send_telemetry(self):
+    def extractMeasurement(self, role):
+        if(role == "sender"):
+            try:
+                results_path = "./results.json"
+                # Load the JSON data from the result file
+                with open("result.json", "r") as file:
+                    data = json.load(file)
+
+                # Extract transfer rates
+                sum_sent = data['end']['sum_sent']
+                sum_received = data['end']['sum_received']
+                sent_rate = sum_sent['bits_per_second']
+                received_rate = sum_received['bits_per_second']
+
+                 # Return as Mbps
+                return [sent_rate / 1e6, received_rate / 1e6]
+
+            except subprocess.CalledProcessError as e:
+               print(f"[ERROR] Failed to run iperf3 as sender: {e}")
+            except (json.JSONDecodeError, KeyError) as e:
+               print(f"[ERROR] Failed to parse result.json: {e}")
+                
+
+
+    def send_telemetry(self,role):
         topic = "telemetry"
-
-        #here i put to start the measurement propably 
-
-
-
-
         device_ip = self.get_device_ip()
-
+        # a function to extact the results.json if the role = sender
         payload = {
           "topic": f"org.acme/{self.DEVICE_NAME}/things/twin/commands/modify",
           "headers": {},
           "path": "/features/network/properties",
           "value": {
-              "device_ip": device_ip,  # Add device_ip field
-              "neighbors": neighbors,
-              "hl_int": hl_int,
-              "tc_int": tc_int,
-              "error": error_status,
+              "device_ip": device_ip,
+              "sent_rate_mbps": rates[0],
+              "received_rate_mbps": rates[1],  # Add device_ip field
+
           }
         }
         self.client.publish(topic, json.dumps(payload))
@@ -171,25 +187,37 @@ class HonoMqttDevice:
              raise
 
     def run(self):
-        try:    
-           self.send_telemetry() 
-           time.sleep(2)
-        except Exception as e:
-            self.logger.error(f"Error in run: {e}")
+
+        try:
+            while not self.message_queue.empty():
+                msg = self.message_queue.get()
+                try:
+                    payload = json.loads(msg.payload)
+                    self.logger.info(f"Processing message")
+                    self.dataTransferMeasurement(self, payload.get("role"))
+                    self.send_telemetry(self, payload.get("role"))
+                
+                except Exception as e:
+                    self.logger.error(f"Error processing message: {e}")
+            
+
+
+                    
+
+           
 
     
 
     
 def main():
     # HonoMqttDevice.wait_until_next_time(20, 48)
-    time.sleep(1)
+
     device = HonoMqttDevice()
     device.connect()
-
     while True:
         try:
-            device.run()
-            time.sleep(30)
+            device.run() # check for messages and send telemetry
+            time.sleep(30) # Run every 30 seconds
         except KeyboardInterrupt:
             print("\nExecution interrupted by user. Exiting...")
             print("Cleaning up resources...")
