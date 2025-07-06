@@ -49,15 +49,34 @@ class HonoMqttDevice:
     def _on_disconnect(self, client, userdata, rc):
         self.logger.warning(f"Disconnected with code {rc}")
     
-    def _on_message(self, client, userdata, rc):
+    def _on_message(self, client, userdata, msg):
         try:
             self.logger.info(f"Received message on {msg.topic}: {msg.payload.decode()}")
             payload = json.loads(msg.payload)
-            #Here i insert what messages i want to extract!
-            # I extract the messages about forwarder and stuff 
-            # and i execute the datatransfer measurement and i save the result.json
+            message = payload.get('value', {})
+            role = message.get("role")
+
+            if role == "server":
+                region = message.get("region")
+                wireless_channel = message.get("wireless_channel")
+                self.dataTransferServer(wireless_channel, region)
+
+            elif role == "forwarder":
+                region = message.get("region")
+                wireless_channel = message.get("wireless_channel")
+                ip_routing = message.get("ip_routing")
+                self.forwarder(wireless_channel, region, ip_routing)
+
+            elif role == "client":
+                region = message.get("region")
+                wireless_channel = message.get("wireless_channel")
+                ip_server = message.get("ip_server")
+                ip_routing = message.get("ip_routing")
+                self.dataTransferClient(wireless_channel, region, ip_server, ip_routing)
+
         except Exception as e:
-            self.logger.error(f"Error Processing message: {e}")
+            self.logger.error(f"Error processing message: {e}")
+
 
     
 
@@ -78,60 +97,179 @@ class HonoMqttDevice:
         
 
 
+    
+    def dataTransferClient(self, wireless_channel, region, ip_server, ip_routing):
+        print("[INFO] Acting as sender...")
 
-    def dataTransferMeasurement(self, role):
-        if role == "sender":
-            print("[INFO] Acting as sender...")
+        try:
+            # 1. Set WLAN region
+            subprocess.run(["sudo", "iw", "reg", "set", region], check=True)
+            print(f"[INFO] Set wireless region to: {region}")
 
+            # 2. Update wireless_channel in /etc/network/interfaces.d/wlan0
+            interfaces_file = "/etc/network/interfaces.d/wlan0"
             try:
-            # Run iperf3 client and save JSON output
-                with open("result.json", "w") as outfile:
-                    subprocess.run([
-                    "iperf3",
-                    "-c", sender_ip,
-                    "--json"
-                    ], check=True, stdout=outfile)
+                with open(interfaces_file, "r") as f:
+                    lines = f.readlines()
+            except FileNotFoundError:
+                print(f"[WARNING] {interfaces_file} not found, skipping wireless channel update.")
+                lines = []
 
-                print("[SUCCESS] iPerf3 test completed")
+            channel_line_index = None
+            channel_pattern = re.compile(r"^\s*wireless_channel\s+\d+", re.IGNORECASE)
 
-        elif role == "receiver":
-            print("[INFO] Acting as receiver...")
-            try:
-            subprocess.run(["iperf3", "-s"], check=True)
-            except subprocess.CalledProcessError as e:
-            print(f"[ERROR] Failed to run iperf3 as receiver: {e}")
+            # Find existing wireless_channel line
+            for i, line in enumerate(lines):
+                if channel_pattern.match(line):
+                    channel_line_index = i
+                    break
 
-        elif role == "forwarder":
-            print("[INFO] Acting as forwarder... enabling IP forwarding.")
-            try:
-        
-            # Enable IP forwarding
-            subprocess.run(["sudo", "sysctl", "-w", "net.ipv4.ip_forward=1"], check=True)
+            new_line = f"wireless_channel {wireless_channel}\n"
+            if channel_line_index is not None:
+                lines[channel_line_index] = new_line
+            else:
+                # Append if not found
+                lines.append(new_line)
 
-            # Check current ip_forward status
-            with open("/proc/sys/net/ipv4/ip_forward", "r") as f:
-                    status = f.read().strip()
-            print(f"IP forwarding is set to: {status}")
+            # Write back the updated lines
+            with open(interfaces_file, "w") as f:
+                f.writelines(lines)
+            print(f"[INFO] Updated wireless_channel to {wireless_channel} in {interfaces_file}")
 
+            # 3. Add route for ip_routing via our_ip
             our_ip = self.get_device_ip()
-
             if not our_ip:
                 print("[ERROR] Could not determine our IP address for routing")
             else:
-                print(f"Our IP address for routing: {our_ip}")
-        
-                # Add static route for 192.168.2.40 via our IP
-                route_cmd = ["sudo", "ip", "route", "add", "192.168.2.40", "via", our_ip]
-                # It might fail if the route already exists, so handle that gracefully
+                print(f"[INFO] Adding route: {ip_routing} via {our_ip}")
+                route_cmd = ["sudo", "ip", "route", "add", ip_routing, "via", our_ip]
                 result = subprocess.run(route_cmd, capture_output=True, text=True)
                 if result.returncode == 0:
-                    print("Route added successfully")
+                    print("[INFO] Route added successfully")
                 else:
-                    # Could be route exists or error
-                    print(f"Failed to add route: {result.stderr.strip()}")
+                    print(f"[WARNING] Failed to add route: {result.stderr.strip()} (may already exist)")
 
-            except subprocess.CalledProcessError as e:
-                print(f"[ERROR] Failed to enable IP forwarding or add route: {e}")
+            # 4. Run iperf3 client and save JSON output
+            with open("result.json", "w") as outfile:
+                subprocess.run([
+                    "iperf3",
+                    "-c", ip_server,
+                    "--json"
+                ], check=True, stdout=outfile)
+
+            print("[SUCCESS] iPerf3 test completed")
+
+        except subprocess.CalledProcessError as e:
+            print(f"[ERROR] Command failed: {e}")
+        except Exception as e:
+            print(f"[ERROR] Unexpected error: {e}")
+
+    def dataTransferServer(self, wireless_channel, region):
+        print("[INFO] Acting as receiver...")
+
+        try:
+            # 1. Set WLAN region
+            subprocess.run(["sudo", "iw", "reg", "set", region], check=True)
+            print(f"[INFO] Set wireless region to: {region}")
+
+            # 2. Update wireless_channel in /etc/network/interfaces.d/wlan0
+            interfaces_file = "/etc/network/interfaces.d/wlan0"
+            try:
+                with open(interfaces_file, "r") as f:
+                    lines = f.readlines()
+            except FileNotFoundError:
+                print(f"[WARNING] {interfaces_file} not found, skipping wireless channel update.")
+                lines = []
+
+            channel_line_index = None
+            channel_pattern = re.compile(r"^\s*wireless_channel\s+\d+", re.IGNORECASE)
+
+            for i, line in enumerate(lines):
+                if channel_pattern.match(line):
+                    channel_line_index = i
+                    break
+
+            new_line = f"wireless_channel {wireless_channel}\n"
+            if channel_line_index is not None:
+                lines[channel_line_index] = new_line
+            else:
+                lines.append(new_line)
+
+            with open(interfaces_file, "w") as f:
+                f.writelines(lines)
+            print(f"[INFO] Updated wireless_channel to {wireless_channel} in {interfaces_file}")
+
+            # 3. Run iperf3 server
+            subprocess.run(["iperf3", "-s"], check=True)
+            print("[SUCCESS] iPerf3 server started")
+
+        except subprocess.CalledProcessError as e:
+            print(f"[ERROR] Command failed: {e}")
+        except Exception as e:
+            print(f"[ERROR] Unexpected error: {e}")
+
+    def forwarder(self, wireless_channel, region, ip_routing):
+    print("[INFO] Acting as forwarder...")
+
+    try:
+        # 1. Set wireless region
+        subprocess.run(["sudo", "iw", "reg", "set", region], check=True)
+        print(f"[INFO] Set wireless region to: {region}")
+
+        # 2. Update wireless_channel config in /etc/network/interfaces.d/wlan0
+        interfaces_file = "/etc/network/interfaces.d/wlan0"
+        try:
+            with open(interfaces_file, "r") as f:
+                lines = f.readlines()
+        except FileNotFoundError:
+            print(f"[WARNING] {interfaces_file} not found, skipping wireless channel update.")
+            lines = []
+
+        channel_line_index = None
+        channel_pattern = re.compile(r"^\s*wireless_channel\s+\d+", re.IGNORECASE)
+
+        for i, line in enumerate(lines):
+            if channel_pattern.match(line):
+                channel_line_index = i
+                break
+
+        new_line = f"wireless_channel {wireless_channel}\n"
+        if channel_line_index is not None:
+            lines[channel_line_index] = new_line
+        else:
+            lines.append(new_line)
+
+        with open(interfaces_file, "w") as f:
+            f.writelines(lines)
+        print(f"[INFO] Updated wireless_channel to {wireless_channel} in {interfaces_file}")
+
+        # 3. Enable IP forwarding
+        subprocess.run(["sudo", "sysctl", "-w", "net.ipv4.ip_forward=1"], check=True)
+        with open("/proc/sys/net/ipv4/ip_forward", "r") as f:
+            status = f.read().strip()
+        print(f"IP forwarding is set to: {status}")
+
+        # 4. Get our IP
+        our_ip = self.get_device_ip()
+
+        if not our_ip:
+            print("[ERROR] Could not determine our IP address for routing")
+        else:
+            print(f"Our IP address for routing: {our_ip}")
+
+            # 5. Add static route to ip_routing via our_ip
+            route_cmd = ["sudo", "ip", "route", "add", ip_routing, "via", our_ip]
+            result = subprocess.run(route_cmd, capture_output=True, text=True)
+            if result.returncode == 0:
+                print(f"Route to {ip_routing} added successfully via {our_ip}")
+            else:
+                print(f"Failed to add route: {result.stderr.strip()}")
+
+    except subprocess.CalledProcessError as e:
+        print(f"[ERROR] Failed during forwarder setup: {e}")
+    except Exception as e:
+        print(f"[ERROR] Unexpected error: {e}")
+
 
 
 
