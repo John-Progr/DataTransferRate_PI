@@ -295,25 +295,36 @@ class HonoMqttDevice:
             except (json.JSONDecodeError, KeyError) as e:
                print(f"[ERROR] Failed to parse result.json: {e}")
                 
+  def get_wireless_channel():
+    try:
+        # Run iwlist to get channel info
+        result = subprocess.check_output(["iwlist", "channel"], text=True)
+        match = re.search(r"Current Frequency.+Channel (\d+)", result)
+        if match:
+            return int(match.group(1))
+    except Exception as e:
+        print(f"Failed to get wireless channel: {e}")
+    return None  # Fallback if not found
 
+   def send_telemetry(self, role):
+    topic = "telemetry"
+    device_ip = self.get_device_ip()
+    rates = self.extractMeasurement(role)
+    channel = get_wireless_channel()
 
-    def send_telemetry(self,role):
-        topic = "telemetry"
-        device_ip = self.get_device_ip()
-        # a function to extact the results.json if the role = sender
-        payload = {
-          "topic": f"org.acme/{self.DEVICE_NAME}/things/twin/commands/modify",
-          "headers": {},
-          "path": "/features/network/properties",
-          "value": {
-              "device_ip": device_ip,
-              "sent_rate_mbps": rates[0],
-              "received_rate_mbps": rates[1],  # Add device_ip field
-
-          }
+    payload = {
+        "topic": f"org.acme/{self.DEVICE_NAME}/things/twin/commands/modify",
+        "headers": {},
+        "path": "/features/network/properties",
+        "value": {
+            "device_ip": device_ip,
+            "rate_mbps": rates[1],
+            "wireless_channel": channel
         }
-        self.client.publish(topic, json.dumps(payload))
-        self.logger.info(f"Published telemetry to {topic}: {json.dumps(payload)}")
+    }
+
+    self.client.publish(topic, json.dumps(payload))
+    self.logger.info(f"Published telemetry to {topic}: {json.dumps(payload)}")
 
     def connect(self):
            try:
