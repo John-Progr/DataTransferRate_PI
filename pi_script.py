@@ -271,8 +271,6 @@ class HonoMqttDevice:
         print(f"[ERROR] Unexpected error: {e}")
 
 
-
-
     def extractMeasurement(self, role):
         if(role == "sender"):
             try:
