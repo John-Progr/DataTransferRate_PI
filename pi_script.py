@@ -10,7 +10,7 @@ class MqttDevice:
     DEVICE_PASSWORD = "auebiot123"
     DEVICE_ID = "device1"
     MQTT_BROKER_HOST = "192.168.0.120"
-    MQTT_BROKER_PORT = 1883  # No TLS
+    MQTT_BROKER_PORT = 1883
 
     def __init__(self, logger=None):
         self.logger = logger or logging.getLogger(__name__)
@@ -61,27 +61,22 @@ class MqttDevice:
                 ip_server = message.get("ip_server")
                 ip_routing = message.get("ip_routing")
                 self.dataTransferClient(wireless_channel, region, ip_server, ip_routing)
+                rates = self.extractMeasurement(role)
+                self.send_telemetry(wireless_channel, rates[0])
 
             else:
                 self.logger.warning(f"⚠️ Unknown role received: {role}")
-
-            self.send_telemetry(role)
 
         except Exception as e:
             self.logger.error(f"❗ Error processing message: {e}")
 
     def dataTransferServer(self, wireless_channel, region):
-        self.logger.info(f"🔧 Simulating dataTransferServer with channel='{wireless_channel}', region='{region}'")
-
-    def forwarder(self, wireless_channel, region, ip_routing):
-        print("[INFO] Acting as forwarder...")
+        print("[INFO] Acting as receiver...")
 
         try:
-            # 1. Set wireless region
             subprocess.run(["sudo", "iw", "reg", "set", region], check=True)
             print(f"[INFO] Set wireless region to: {region}")
 
-            # 2. Update wireless_channel config in /etc/network/interfaces.d/wlan0
             interfaces_file = "/etc/network/interfaces.d/wlan0"
             try:
                 with open(interfaces_file, "r") as f:
@@ -91,14 +86,14 @@ class MqttDevice:
                 lines = []
 
             channel_line_index = None
-            channel_pattern = re.compile(r"^\s*wireless-channel\s+\d+", re.IGNORECASE)
+            channel_pattern = re.compile(r"^\\s*wireless-channel\\s+\\d+", re.IGNORECASE)
 
             for i, line in enumerate(lines):
                 if channel_pattern.match(line):
                     channel_line_index = i
                     break
 
-            new_line = f"   wireless-channel {wireless_channel}\n"
+            new_line = f"   wireless-channel {wireless_channel}\\n"
             if channel_line_index is not None:
                 lines[channel_line_index] = new_line
             else:
@@ -108,27 +103,67 @@ class MqttDevice:
                 f.writelines(lines)
             print(f"[INFO] Updated wireless-channel to {wireless_channel} in {interfaces_file}")
 
-            # 3. Enable IP forwarding
-            subprocess.run(["sudo", "sysctl", "-w", "net.ipv4.ip_forward=1"], check=True)
-            with open("/proc/sys/net/ipv4/ip_forward", "r") as f:
-                status = f.read().strip()
-            print(f"IP forwarding is set to: {status}")
-
-            # 4. Restart wlan0 interface to apply changes
             print("[INFO] Restarting wlan0 interface...")
             subprocess.run(["sudo", "ifdown", "wlan0"], check=True)
             subprocess.run(["sudo", "ifup", "wlan0"], check=True)
             print("[INFO] wlan0 restarted")
 
-            # 5. Get our IP
-            our_ip = self.get_device_ip()
+            subprocess.run(["iperf3", "-s"], check=True)
+            print("[SUCCESS] iPerf3 server started")
 
+        except subprocess.CalledProcessError as e:
+            print(f"[ERROR] Command failed: {e}")
+        except Exception as e:
+            print(f"[ERROR] Unexpected error: {e}")
+
+    def forwarder(self, wireless_channel, region, ip_routing):
+        print("[INFO] Acting as forwarder...")
+
+        try:
+            subprocess.run(["sudo", "iw", "reg", "set", region], check=True)
+            print(f"[INFO] Set wireless region to: {region}")
+
+            interfaces_file = "/etc/network/interfaces.d/wlan0"
+            try:
+                with open(interfaces_file, "r") as f:
+                    lines = f.readlines()
+            except FileNotFoundError:
+                print(f"[WARNING] {interfaces_file} not found, skipping wireless channel update.")
+                lines = []
+
+            channel_line_index = None
+            channel_pattern = re.compile(r"^\\s*wireless-channel\\s+\\d+", re.IGNORECASE)
+
+            for i, line in enumerate(lines):
+                if channel_pattern.match(line):
+                    channel_line_index = i
+                    break
+
+            new_line = f"   wireless-channel {wireless_channel}\\n"
+            if channel_line_index is not None:
+                lines[channel_line_index] = new_line
+            else:
+                lines.append(new_line)
+
+            with open(interfaces_file, "w") as f:
+                f.writelines(lines)
+            print(f"[INFO] Updated wireless-channel to {wireless_channel} in {interfaces_file}")
+
+            subprocess.run(["sudo", "sysctl", "-w", "net.ipv4.ip_forward=1"], check=True)
+            with open("/proc/sys/net/ipv4/ip_forward", "r") as f:
+                status = f.read().strip()
+            print(f"IP forwarding is set to: {status}")
+
+            print("[INFO] Restarting wlan0 interface...")
+            subprocess.run(["sudo", "ifdown", "wlan0"], check=True)
+            subprocess.run(["sudo", "ifup", "wlan0"], check=True)
+            print("[INFO] wlan0 restarted")
+
+            our_ip = self.get_device_ip()
             if not our_ip or our_ip == "0.0.0.0":
                 print("[ERROR] Could not determine our IP address for routing")
             else:
                 print(f"Our IP address for routing: {our_ip}")
-
-                # 6. Add static route to ip_routing via our_ip
                 route_cmd = ["sudo", "ip", "route", "add", ip_routing, "via", our_ip]
                 result = subprocess.run(route_cmd, capture_output=True, text=True)
                 if result.returncode == 0:
@@ -142,11 +177,66 @@ class MqttDevice:
             print(f"[ERROR] Unexpected error: {e}")
 
     def dataTransferClient(self, wireless_channel, region, ip_server, ip_routing):
-        self.logger.info(f"🔧 Simulating dataTransferClient with channel='{wireless_channel}', region='{region}', ip_server='{ip_server}', ip_routing='{ip_routing}'")
+        print("[INFO] Acting as sender...")
+
+        try:
+            subprocess.run(["sudo", "iw", "reg", "set", region], check=True)
+            print(f"[INFO] Set wireless region to: {region}")
+
+            interfaces_file = "/etc/network/interfaces.d/wlan0"
+            try:
+                with open(interfaces_file, "r") as f:
+                    lines = f.readlines()
+            except FileNotFoundError:
+                print(f"[WARNING] {interfaces_file} not found, skipping wireless channel update.")
+                lines = []
+
+            channel_line_index = None
+            channel_pattern = re.compile(r"^\\s*wireless-channel\\s+\\d+", re.IGNORECASE)
+
+            for i, line in enumerate(lines):
+                if channel_pattern.match(line):
+                    channel_line_index = i
+                    break
+
+            new_line = f"   wireless-channel {wireless_channel}\\n"
+            if channel_line_index is not None:
+                lines[channel_line_index] = new_line
+            else:
+                lines.append(new_line)
+
+            with open(interfaces_file, "w") as f:
+                f.writelines(lines)
+            print(f"[INFO] Updated wireless-channel to {wireless_channel} in {interfaces_file}")
+
+            our_ip = self.get_device_ip()
+            if not our_ip:
+                print("[ERROR] Could not determine our IP address for routing")
+            else:
+                print(f"[INFO] Adding route: {ip_routing} via {our_ip}")
+                route_cmd = ["sudo", "ip", "route", "add", ip_routing, "via", our_ip]
+                result = subprocess.run(route_cmd, capture_output=True, text=True)
+                if result.returncode == 0:
+                    print("[INFO] Route added successfully")
+                else:
+                    print(f"[WARNING] Failed to add route: {result.stderr.strip()}")
+
+            with open("result.json", "w") as outfile:
+                subprocess.run([
+                    "iperf3",
+                    "-c", ip_server,
+                    "--json"
+                ], check=True, stdout=outfile)
+
+            print("[SUCCESS] iPerf3 test completed")
+
+        except subprocess.CalledProcessError as e:
+            print(f"[ERROR] Command failed: {e}")
+        except Exception as e:
+            print(f"[ERROR] Unexpected error: {e}")
 
     def get_device_ip(self):
         try:
-            # Get the IP address of the device on wlan0 interface as you requested
             command = "hostname -I | awk '{print $1}'"
             result = subprocess.run(command, shell=True, capture_output=True, text=True)
             device_ip = result.stdout.strip()
@@ -159,23 +249,30 @@ class MqttDevice:
             self.logger.error(f"Error fetching device IP: {e}")
             return "0.0.0.0"
 
+    def extractMeasurement(self, role):
+        try:
+            with open("result.json", "r") as file:
+                data = json.load(file)
+            sent_rate = data['end']['sum_sent']['bits_per_second']
+            received_rate = data['end']['sum_received']['bits_per_second']
+            return [sent_rate / 1e6, received_rate / 1e6]
+        except Exception as e:
+            print(f"[ERROR] Failed to extract measurement: {e}")
+            return [0, 0]
+
+    def send_telemetry(self, wireless_channel, sent_rate):
+        topic = "telemetry"
+        payload = {
+            "wireless_channel": wireless_channel,
+            "sent_rate_mbps": round(sent_rate, 2)
+        }
+        message = json.dumps(payload)
+        self.client.publish(topic, message)
+        self.logger.info(f"📤 Published telemetry to '{topic}': {message}")
+
     def connect(self):
         self.client.connect(self.MQTT_BROKER_HOST, self.MQTT_BROKER_PORT)
         self.client.loop_start()
-
-    def send_telemetry(self, role):
-        try:
-            ping_result = subprocess.run(
-                ["ping", "-c", "1", "google.com"], capture_output=True, text=True, check=True
-            )
-            ping_output = ping_result.stdout.strip()
-        except subprocess.CalledProcessError as e:
-            ping_output = f"Ping failed: {e}"
-
-        topic = "telemetry"
-        message = f"STATE: Device role is {role}\nPing output:\n{ping_output}"
-        self.client.publish(topic, message)
-        self.logger.info(f"📤 Published telemetry to '{topic}': {message}")
 
     def run(self):
         self.logger.info("📡 Listening for messages...")
