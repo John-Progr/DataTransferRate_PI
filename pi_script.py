@@ -3,28 +3,24 @@ import time
 import json
 import paho.mqtt.client as mqtt
 import subprocess
+import re
 
 class MqttDevice:
     DEVICE_USERNAME = "pi"
     DEVICE_PASSWORD = "auebiot123"
     DEVICE_ID = "device1"
-    MQTT_BROKER_HOST = "localhost"
+    MQTT_BROKER_HOST = "192.168.0.120"
     MQTT_BROKER_PORT = 1883  # No TLS
 
     def __init__(self, logger=None):
         self.logger = logger or logging.getLogger(__name__)
         logging.basicConfig(level=logging.INFO)
 
-        # Initialize MQTT client
         self.client = mqtt.Client()
-
-        # Set username and password
         self.client.username_pw_set(
             username=self.DEVICE_USERNAME,
             password=self.DEVICE_PASSWORD
         )
-
-        # Attach callbacks
         self.client.on_connect = self._on_connect
         self.client.on_disconnect = self._on_disconnect
         self.client.on_message = self._on_message
@@ -69,7 +65,6 @@ class MqttDevice:
             else:
                 self.logger.warning(f"⚠️ Unknown role received: {role}")
 
-            # Send telemetry ONLY after processing the message
             self.send_telemetry(role)
 
         except Exception as e:
@@ -79,17 +74,96 @@ class MqttDevice:
         self.logger.info(f"🔧 Simulating dataTransferServer with channel='{wireless_channel}', region='{region}'")
 
     def forwarder(self, wireless_channel, region, ip_routing):
-        self.logger.info(f"🔧 Simulating forwarder with channel='{wireless_channel}', region='{region}', ip_routing='{ip_routing}'")
+        print("[INFO] Acting as forwarder...")
+
+        try:
+            # 1. Set wireless region
+            subprocess.run(["sudo", "iw", "reg", "set", region], check=True)
+            print(f"[INFO] Set wireless region to: {region}")
+
+            # 2. Update wireless_channel config in /etc/network/interfaces.d/wlan0
+            interfaces_file = "/etc/network/interfaces.d/wlan0"
+            try:
+                with open(interfaces_file, "r") as f:
+                    lines = f.readlines()
+            except FileNotFoundError:
+                print(f"[WARNING] {interfaces_file} not found, skipping wireless channel update.")
+                lines = []
+
+            channel_line_index = None
+            channel_pattern = re.compile(r"^\s*wireless-channel\s+\d+", re.IGNORECASE)
+
+            for i, line in enumerate(lines):
+                if channel_pattern.match(line):
+                    channel_line_index = i
+                    break
+
+            new_line = f"   wireless-channel {wireless_channel}\n"
+            if channel_line_index is not None:
+                lines[channel_line_index] = new_line
+            else:
+                lines.append(new_line)
+
+            with open(interfaces_file, "w") as f:
+                f.writelines(lines)
+            print(f"[INFO] Updated wireless-channel to {wireless_channel} in {interfaces_file}")
+
+            # 3. Enable IP forwarding
+            subprocess.run(["sudo", "sysctl", "-w", "net.ipv4.ip_forward=1"], check=True)
+            with open("/proc/sys/net/ipv4/ip_forward", "r") as f:
+                status = f.read().strip()
+            print(f"IP forwarding is set to: {status}")
+
+            # 4. Restart wlan0 interface to apply changes
+            print("[INFO] Restarting wlan0 interface...")
+            subprocess.run(["sudo", "ifdown", "wlan0"], check=True)
+            subprocess.run(["sudo", "ifup", "wlan0"], check=True)
+            print("[INFO] wlan0 restarted")
+
+            # 5. Get our IP
+            our_ip = self.get_device_ip()
+
+            if not our_ip or our_ip == "0.0.0.0":
+                print("[ERROR] Could not determine our IP address for routing")
+            else:
+                print(f"Our IP address for routing: {our_ip}")
+
+                # 6. Add static route to ip_routing via our_ip
+                route_cmd = ["sudo", "ip", "route", "add", ip_routing, "via", our_ip]
+                result = subprocess.run(route_cmd, capture_output=True, text=True)
+                if result.returncode == 0:
+                    print(f"Route to {ip_routing} added successfully via {our_ip}")
+                else:
+                    print(f"Failed to add route: {result.stderr.strip()}")
+
+        except subprocess.CalledProcessError as e:
+            print(f"[ERROR] Failed during forwarder setup: {e}")
+        except Exception as e:
+            print(f"[ERROR] Unexpected error: {e}")
 
     def dataTransferClient(self, wireless_channel, region, ip_server, ip_routing):
         self.logger.info(f"🔧 Simulating dataTransferClient with channel='{wireless_channel}', region='{region}', ip_server='{ip_server}', ip_routing='{ip_routing}'")
+
+    def get_device_ip(self):
+        try:
+            # Get the IP address of the device on wlan0 interface as you requested
+            command = "hostname -I | awk '{print $1}'"
+            result = subprocess.run(command, shell=True, capture_output=True, text=True)
+            device_ip = result.stdout.strip()
+            if device_ip:
+                return device_ip
+            else:
+                self.logger.error("No IP address found for wlan0")
+                return "0.0.0.0"
+        except Exception as e:
+            self.logger.error(f"Error fetching device IP: {e}")
+            return "0.0.0.0"
 
     def connect(self):
         self.client.connect(self.MQTT_BROKER_HOST, self.MQTT_BROKER_PORT)
         self.client.loop_start()
 
     def send_telemetry(self, role):
-        # Run a ping command and capture output (example: ping google.com 1 time)
         try:
             ping_result = subprocess.run(
                 ["ping", "-c", "1", "google.com"], capture_output=True, text=True, check=True
@@ -105,7 +179,6 @@ class MqttDevice:
 
     def run(self):
         self.logger.info("📡 Listening for messages...")
-        # No telemetry here anymore — telemetry sent ONLY after message processed
 
 def main():
     device = MqttDevice()
@@ -113,7 +186,7 @@ def main():
 
     try:
         while True:
-            device.run()  # Just logs listening, does NOT send telemetry periodically
+            device.run()
             time.sleep(1)
     except KeyboardInterrupt:
         print("\n👋 Execution interrupted by user. Exiting...")
