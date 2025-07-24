@@ -70,12 +70,15 @@ class MqttDevice:
         except Exception as e:
             self.logger.error(f"❗ Error processing message: {e}")
 
-    def dataTransferServer(self, wireless_channel, region):
+   def dataTransferServer(self, wireless_channel, region):
         print("[INFO] Acting as receiver...")
 
         try:
             subprocess.run(["sudo", "iw", "reg", "set", region], check=True)
             print(f"[INFO] Set wireless region to: {region}")
+
+            # NEW: Apply channel immediately
+            subprocess.run(["sudo", "iwconfig", "wlan0", "channel", str(wireless_channel)], check=True)
 
             interfaces_file = "/etc/network/interfaces.d/wlan0"
             try:
@@ -86,14 +89,14 @@ class MqttDevice:
                 lines = []
 
             channel_line_index = None
-            channel_pattern = re.compile(r"^\\s*wireless-channel\\s+\\d+", re.IGNORECASE)
+            channel_pattern = re.compile(r"^\s*wireless-channel\s+\d+", re.IGNORECASE)
 
             for i, line in enumerate(lines):
                 if channel_pattern.match(line):
                     channel_line_index = i
                     break
 
-            new_line = f"   wireless-channel {wireless_channel}\\n"
+            new_line = f"   wireless-channel {wireless_channel}\n"  # ✅ fixed \n
             if channel_line_index is not None:
                 lines[channel_line_index] = new_line
             else:
@@ -123,6 +126,9 @@ class MqttDevice:
             subprocess.run(["sudo", "iw", "reg", "set", region], check=True)
             print(f"[INFO] Set wireless region to: {region}")
 
+            # NEW: Apply channel immediately
+            subprocess.run(["sudo", "iwconfig", "wlan0", "channel", str(wireless_channel)], check=True)
+
             interfaces_file = "/etc/network/interfaces.d/wlan0"
             try:
                 with open(interfaces_file, "r") as f:
@@ -132,14 +138,14 @@ class MqttDevice:
                 lines = []
 
             channel_line_index = None
-            channel_pattern = re.compile(r"^\\s*wireless-channel\\s+\\d+", re.IGNORECASE)
+            channel_pattern = re.compile(r"^\s*wireless-channel\s+\d+", re.IGNORECASE)
 
             for i, line in enumerate(lines):
                 if channel_pattern.match(line):
                     channel_line_index = i
                     break
 
-            new_line = f"   wireless-channel {wireless_channel}\\n"
+            new_line = f"   wireless-channel {wireless_channel}\n"  # ✅ fixed \n
             if channel_line_index is not None:
                 lines[channel_line_index] = new_line
             else:
@@ -183,6 +189,9 @@ class MqttDevice:
             subprocess.run(["sudo", "iw", "reg", "set", region], check=True)
             print(f"[INFO] Set wireless region to: {region}")
 
+            # NEW: Apply channel immediately
+            subprocess.run(["sudo", "iwconfig", "wlan0", "channel", str(wireless_channel)], check=True)
+
             interfaces_file = "/etc/network/interfaces.d/wlan0"
             try:
                 with open(interfaces_file, "r") as f:
@@ -192,14 +201,14 @@ class MqttDevice:
                 lines = []
 
             channel_line_index = None
-            channel_pattern = re.compile(r"^\\s*wireless-channel\\s+\\d+", re.IGNORECASE)
+            channel_pattern = re.compile(r"^\s*wireless-channel\s+\d+", re.IGNORECASE)
 
             for i, line in enumerate(lines):
                 if channel_pattern.match(line):
                     channel_line_index = i
                     break
 
-            new_line = f"   wireless-channel {wireless_channel}\\n"
+            new_line = f"   wireless-channel {wireless_channel}\n"  # ✅ fixed \n
             if channel_line_index is not None:
                 lines[channel_line_index] = new_line
             else:
@@ -234,7 +243,7 @@ class MqttDevice:
             print(f"[ERROR] Command failed: {e}")
         except Exception as e:
             print(f"[ERROR] Unexpected error: {e}")
-
+            
     def get_device_ip(self):
         try:
             command = "hostname -I | awk '{print $1}'"
