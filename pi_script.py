@@ -70,7 +70,7 @@ class MqttDevice:
         except Exception as e:
             self.logger.error(f"❗ Error processing message: {e}")
 
-   def dataTransferServer(self, wireless_channel, region):
+    def dataTransferServer(self, wireless_channel, region):
         print("[INFO] Acting as receiver...")
 
         try:
@@ -243,7 +243,7 @@ class MqttDevice:
             print(f"[ERROR] Command failed: {e}")
         except Exception as e:
             print(f"[ERROR] Unexpected error: {e}")
-            
+
     def get_device_ip(self):
         try:
             command = "hostname -I | awk '{print $1}'"
