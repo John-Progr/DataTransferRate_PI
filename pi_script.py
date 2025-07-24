@@ -45,17 +45,20 @@ class MqttDevice:
             role = message.get("role")
 
             if role == "server":
+                self.flush_routes()
                 region = message.get("region")
                 wireless_channel = message.get("wireless_channel")
                 self.dataTransferServer(wireless_channel, region)
 
             elif role == "forwarder":
+                self.flush_routes()
                 region = message.get("region")
                 wireless_channel = message.get("wireless_channel")
                 ip_routing = message.get("ip_routing")
                 self.forwarder(wireless_channel, region, ip_routing)
 
             elif role == "client":
+                self.flush_routes()
                 region = message.get("region")
                 wireless_channel = message.get("wireless_channel")
                 ip_server = message.get("ip_server")
@@ -70,6 +73,30 @@ class MqttDevice:
         except Exception as e:
             self.logger.error(f"❗ Error processing message: {e}")
 
+
+    def flush_routes():
+        try:
+            result = subprocess.run(["ip", "route", "show"], capture_output=True, text=True)
+            routes = result.stdout.strip().split('\n')
+
+            for route in routes:
+                route = route.strip()
+                if route.startswith("default"):
+                    continue  # Don't delete default route
+
+                parts = route.split()
+                if not parts:
+                    continue
+
+                target = parts[0]
+                if target.startswith("192.168.2."):
+                    subprocess.run(["sudo", "ip", "route", "del", target], check=False)
+                    print(f"[INFO] Flushed route: {target}")
+
+        except Exception as e:
+            print(f"[ERROR] Failed to flush routes: {e}")
+
+    
     def dataTransferServer(self, wireless_channel, region):
         print("[INFO] Acting as receiver...")
 
