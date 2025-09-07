@@ -74,7 +74,7 @@ class MqttDevice:
             self.logger.error(f"❗ Error processing message: {e}")
 
 
-    def flush_routes():
+    def flush_routes(self):
         try:
             result = subprocess.run(["ip", "route", "show"], capture_output=True, text=True)
             routes = result.stdout.strip().split('\n')
