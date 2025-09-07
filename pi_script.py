@@ -81,17 +81,24 @@ class MqttDevice:
 
             for route in routes:
                 route = route.strip()
-                if route.startswith("default"):
-                    continue  # Don't delete default route
-
-                parts = route.split()
-                if not parts:
+                if not route:
                     continue
 
-                target = parts[0]
-                if target.startswith("192.168.2."):
-                    subprocess.run(["sudo", "ip", "route", "del", target], check=False)
-                    print(f"[INFO] Flushed route: {target}")
+                parts = route.split()
+                destination = parts[0]
+                gateway = parts[2] if len(parts) > 2 else "0.0.0.0"
+
+                # Keep default route, link-local, and main subnets
+                if destination == "default" or \
+                destination.startswith("169.254.") or \
+                destination.startswith("192.168.0.") or \
+                destination.startswith("192.168.2.") or \
+                gateway == "0.0.0.0":
+                    continue
+
+                # Delete only other manual routes
+                subprocess.run(["sudo", "ip", "route", "del", destination], check=False)
+                print(f"[INFO] Flushed manual route: {destination}")
 
         except Exception as e:
             print(f"[ERROR] Failed to flush routes: {e}")
