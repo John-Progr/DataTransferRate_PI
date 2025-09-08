@@ -103,17 +103,30 @@ class MqttDevice:
                 parts = route.split()
                 destination = parts[0]
                 gateway = parts[2] if len(parts) > 2 else "0.0.0.0"
-
-                # Keep default route, link-local, and main subnets
-                if destination == "default" or \
-                destination.startswith("169.254.") or \
-                destination.startswith("192.168.0.") or \
-                gateway == "0.0.0.0":
-                    continue
-
-                # Delete only other manual routes
-                subprocess.run(["sudo", "ip", "route", "del", destination], check=False)
-                print(f"[INFO] Flushed manual route: {destination}")
+                
+                # This is the key logic. We keep direct subnet routes, but delete specific host routes.
+                # A subnet route has a Genmask of 255.255.255.0 (or similar) and no gateway.
+                # A host route has a Genmask of 255.255.255.255 and a gateway.
+                
+                if "via" in parts:
+                    # This is a specific host route, like 192.168.2.10 via 192.168.2.20
+                    if destination.startswith("192.168.2."):
+                        route_to_delete = f"{destination} via {gateway}"
+                        subprocess.run(["sudo", "ip", "route", "del", route_to_delete], check=False)
+                        print(f"[INFO] Flushed manual route: {route_to_delete}")
+                
+                elif "dev" in parts:
+                    # This is a direct device route. We should keep the main subnet routes.
+                    # Only keep essential subnets and default gateway.
+                    if destination.startswith("default") or \
+                    destination.startswith("169.254.") or \
+                    destination.startswith("192.168.0.") or \
+                    (destination.startswith("192.168.2.") and 'scope link' in route):
+                        continue
+                    else:
+                        # Catch any other dev routes that aren't on our "keep" list
+                        subprocess.run(["sudo", "ip", "route", "del", destination], check=False)
+                        print(f"[INFO] Flushed other route: {destination}")
 
         except Exception as e:
             print(f"[ERROR] Failed to flush routes: {e}")
