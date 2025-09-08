@@ -27,6 +27,7 @@ class MqttDevice:
 
         # we add a gloabl variable for the role
         self.current_role = None
+        self.iperf_server_process = None
 
     def _on_connect(self, client, userdata, flags, rc):
         if rc == 0:
@@ -160,7 +161,10 @@ class MqttDevice:
             subprocess.run(["sudo", "ifup", "wlan0"], check=True)
             print("[INFO] wlan0 restarted")
 
-            subprocess.run(["iperf3", "-s"], check=True)
+            # subprocess.run(["iperf3", "-s"], check=True)
+            self.iperf_server_process = subprocess.Popen(["iperf3", "-s"])
+            self.current_role = "server"
+
             print("[SUCCESS] iPerf3 server started")
 
         except subprocess.CalledProcessError as e:
