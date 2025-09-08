@@ -101,17 +101,39 @@ class MqttDevice:
                 if not parts:
                     continue
 
-                destination = parts[0]
-                
                 # Identify a manual host route (e.g., 192.168.2.10 via 192.168.2.20)
-                # by checking if it contains the "via" keyword and is in the 192.168.2.x subnet.
-                if "via" in parts and destination.startswith("192.168.2."):
-                    route_to_delete = " ".join(parts)
-                    subprocess.run(["sudo", "ip", "route", "del", route_to_delete], check=False)
-                    print(f"[INFO] Flushed specific manual route: {route_to_delete}")
-
+                if "via" in parts and parts[0].startswith("192.168.2."):
+                    # Get the destination and gateway from the parsed parts
+                    destination = parts[0]
+                    gateway = parts[2]
+                    
+                    # Use a specific, robust command to delete the route
+                    subprocess.run(["sudo", "ip", "route", "del", destination, "via", gateway], check=False)
+                    print(f"[INFO] Flushed specific manual route: {destination} via {gateway}")
+                
         except Exception as e:
             print(f"[ERROR] Failed to flush routes: {e}")
+            try:
+                # Get all current routes
+                result = subprocess.run(["ip", "route", "show"], capture_output=True, text=True)
+                routes = result.stdout.strip().split('\n')
+
+                for route_line in routes:
+                    parts = route_line.strip().split()
+                    if not parts:
+                        continue
+
+                    destination = parts[0]
+                    
+                    # Identify a manual host route (e.g., 192.168.2.10 via 192.168.2.20)
+                    # by checking if it contains the "via" keyword and is in the 192.168.2.x subnet.
+                    if "via" in parts and destination.startswith("192.168.2."):
+                        route_to_delete = " ".join(parts)
+                        subprocess.run(["sudo", "ip", "route", "del", route_to_delete], check=False)
+                        print(f"[INFO] Flushed specific manual route: {route_to_delete}")
+
+            except Exception as e:
+                print(f"[ERROR] Failed to flush routes: {e}")
 
     
     def dataTransferServer(self, wireless_channel, region):
