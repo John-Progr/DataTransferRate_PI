@@ -108,7 +108,6 @@ class MqttDevice:
                 if destination == "default" or \
                 destination.startswith("169.254.") or \
                 destination.startswith("192.168.0.") or \
-                destination.startswith("192.168.2.") or \
                 gateway == "0.0.0.0":
                     continue
 
