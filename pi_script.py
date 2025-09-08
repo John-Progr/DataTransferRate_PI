@@ -25,11 +25,15 @@ class MqttDevice:
         self.client.on_disconnect = self._on_disconnect
         self.client.on_message = self._on_message
 
+        # we add a gloabl variable for the role
+        self.current_role = None
+
     def _on_connect(self, client, userdata, flags, rc):
         if rc == 0:
             self.logger.info("✅ Successfully connected to MQTT broker")
             command_topic = f"command/{self.DEVICE_ID}/req/#"
             self.client.subscribe(command_topic)
+            self.client.subscribe("telemetry")
             self.logger.info(f"📥 Subscribed to command topic: {command_topic}")
         else:
             self.logger.error(f"❌ Connection failed with code {rc}")
@@ -40,9 +44,19 @@ class MqttDevice:
     def _on_message(self, client, userdata, msg):
         try:
             self.logger.info(f"📩 Received message on topic '{msg.topic}': {msg.payload.decode()}")
+
+
+            # If telemetry message and we're server, stop iperf3
+            if msg.topic == "telemetry" and self.current_role == "server":
+                self.logger.info("📊 Client finished, stopping iperf3 server")
+                subprocess.run(["sudo", "pkill", "-f", "iperf3.*-s"], check=False)
+                self.current_role = None
+                return
+    
             payload = json.loads(msg.payload)
             message = payload.get('value', {})
             role = message.get("role")
+
 
             if role == "server":
                 self.flush_routes()
@@ -73,6 +87,7 @@ class MqttDevice:
         except Exception as e:
             self.logger.error(f"❗ Error processing message: {e}")
 
+   
 
     def flush_routes(self):
         try:
