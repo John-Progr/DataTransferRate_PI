@@ -319,7 +319,7 @@ class MqttDevice:
         self.client.loop_start()
 
     def run(self):
-        self.logger.info("📡 Listening for messages...")
+        
 
 def main():
     device = MqttDevice()
