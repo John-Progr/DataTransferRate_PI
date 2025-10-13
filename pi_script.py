@@ -319,7 +319,7 @@ class MqttDevice:
         self.client.loop_start()
 
     def run(self):
-        
+        pass
 
 def main():
     device = MqttDevice()
