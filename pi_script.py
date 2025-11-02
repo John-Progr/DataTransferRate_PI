@@ -80,7 +80,7 @@ class MqttDevice:
                 ip_routing = message.get("ip_routing")
                 self.dataTransferClient(wireless_channel, region, ip_server, ip_routing)
                 rates = self.extractMeasurement(role)
-                self.send_telemetry(wireless_channel, rates[0])
+                self.send_telemetry(wireless_channel, rates[1])
 
             else:
                 self.logger.warning(f"⚠️ Unknown role received: {role}")
