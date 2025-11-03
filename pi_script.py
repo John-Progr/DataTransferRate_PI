@@ -176,6 +176,8 @@ class MqttDevice:
             subprocess.run(["sudo", "ifdown", "wlan0"], check=True)
             subprocess.run(["sudo", "ifup", "wlan0"], check=True)
             print("[INFO] wlan0 restarted")
+            subprocess.run(["sudo", "pkill", "-f", "iperf3.*-s"], check=False)
+            time.sleep(1)  # small delay to ensure the port is released
 
             # subprocess.run(["iperf3", "-s"], check=True)
             self.iperf_server_process = subprocess.Popen(["iperf3", "-s"])
