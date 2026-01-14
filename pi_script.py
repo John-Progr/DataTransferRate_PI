@@ -145,7 +145,7 @@ class MqttDevice:
 
             # NEW: Apply channel immediately
             subprocess.run(["sudo", "iwconfig", "wlan0", "channel", str(wireless_channel)], check=True)
-
+            """
             interfaces_file = "/etc/network/interfaces.d/wlan0"
             try:
                 with open(interfaces_file, "r") as f:
@@ -176,12 +176,14 @@ class MqttDevice:
             subprocess.run(["sudo", "ifdown", "wlan0"], check=True)
             subprocess.run(["sudo", "ifup", "wlan0"], check=True)
             print("[INFO] wlan0 restarted")
+            """
             subprocess.run(["sudo", "pkill", "-f", "iperf3.*-s"], check=False)
             time.sleep(1)  # small delay to ensure the port is released
 
             # subprocess.run(["iperf3", "-s"], check=True)
-            self.iperf_server_process = subprocess.Popen(["iperf3", "-s"])
             self.current_role = "server"
+            self.iperf_server_process = subprocess.Popen(["iperf3", "-s"])
+            
 
             print("[SUCCESS] iPerf3 server started")
 
@@ -198,7 +200,7 @@ class MqttDevice:
             print(f"[INFO] Set wireless region to: {region}")
 
             subprocess.run(["sudo", "iwconfig", "wlan0", "channel", str(wireless_channel)], check=True)
-
+            """
             interfaces_file = "/etc/network/interfaces.d/wlan0"
             try:
                 with open(interfaces_file, "r") as f:
@@ -216,7 +218,7 @@ class MqttDevice:
             with open(interfaces_file, "w") as f:
                 f.writelines(lines)
             print(f"[INFO] Updated wireless-channel to {wireless_channel} in {interfaces_file}")
-
+            """
             # Enable forwarding
             subprocess.run(["sudo", "sysctl", "-w", "net.ipv4.ip_forward=1"], check=True)
             print("[INFO] Enabled IP forwarding")
@@ -240,6 +242,7 @@ class MqttDevice:
 
             subprocess.run(["sudo", "iwconfig", "wlan0", "channel", str(wireless_channel)], check=True)
 
+            """
             interfaces_file = "/etc/network/interfaces.d/wlan0"
             try:
                 with open(interfaces_file, "r") as f:
@@ -258,6 +261,7 @@ class MqttDevice:
                 f.writelines(lines)
             print(f"[INFO] Updated wireless-channel to {wireless_channel} in {interfaces_file}")
 
+            """
             # ✅ Correct route: server via forwarder
             print(f"[INFO] Adding route: {ip_server} via {ip_routing}")
             route_cmd = ["sudo", "ip", "route", "add", ip_server, "via", ip_routing]
