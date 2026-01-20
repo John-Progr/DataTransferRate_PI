@@ -271,14 +271,31 @@ class MqttDevice:
             else:
                 print(f"[WARNING] Failed to add route: {result.stderr.strip()}")
 
-            with open("result.json", "w") as outfile:
-                subprocess.run([
-                    "iperf3",
-                    "-c", ip_server,
-                    "--json"
-                ], check=True, stdout=outfile)
-
-            print("[SUCCESS] iPerf3 test completed")
+            max_retries = 3
+            retry_delay = 5  # seconds
+            
+            for attempt in range(1, max_retries + 1):
+                try:
+                    print(f"[INFO] Running iPerf3 test (attempt {attempt}/{max_retries})")
+            
+                    with open("result.json", "w") as outfile:
+                        subprocess.run(
+                            ["iperf3", "-c", ip_server, "--json"],
+                            check=True,
+                            stdout=outfile
+                        )
+            
+                    print("[SUCCESS] iPerf3 test completed")
+                    break  # ✅ stop retrying, continue function
+            
+                except subprocess.CalledProcessError as e:
+                    print(f"[WARNING] iPerf3 failed (attempt {attempt}): {e}")
+            
+                    if attempt < max_retries:
+                        print(f"[INFO] Retrying in {retry_delay} seconds...")
+                        time.sleep(retry_delay)
+                    else:
+                        print("[ERROR] iPerf3 failed after maximum retries")
 
         except subprocess.CalledProcessError as e:
             print(f"[ERROR] Command failed: {e}")
