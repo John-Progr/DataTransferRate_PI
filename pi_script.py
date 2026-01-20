@@ -157,14 +157,14 @@ class MqttDevice:
                 text=True
             )
             print(result)
-            if ip_client =! "" and ip_previous != ""):
-                print(f"[INFO] Adding route: {ip_server} via {ip_previous}")
-                route_cmd = ["sudo", "ip", "route", "add", ip_client, "via", ip_previous]
-                result = subprocess.run(route_cmd, capture_output=True, text=True)
-                if result.returncode == 0:
-                    print("[INFO] Route added successfully")
-                else:
-                    print(f"[WARNING] Failed to add route: {result.stderr.strip()}")
+            
+            print(f"[INFO] Adding route: {ip_server} via {ip_previous}")
+            route_cmd = ["sudo", "ip", "route", "add", ip_client, "via", ip_previous]
+            result = subprocess.run(route_cmd, capture_output=True, text=True)
+            if result.returncode == 0:
+                print("[INFO] Route added successfully")
+            else:
+                print(f"[WARNING] Failed to add route: {result.stderr.strip()}")
 
             
             subprocess.run(["sudo", "pkill", "-f", "iperf3.*-s"], check=False)
