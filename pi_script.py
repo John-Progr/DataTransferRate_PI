@@ -158,7 +158,7 @@ class MqttDevice:
             )
             print(result)
             
-            print(f"[INFO] Adding route: {ip_server} via {ip_previous}")
+            print(f"[INFO] Adding route: {ip_client} via {ip_previous}")
             route_cmd = ["sudo", "ip", "route", "add", ip_client, "via", ip_previous]
             result = subprocess.run(route_cmd, capture_output=True, text=True)
             if result.returncode == 0:
