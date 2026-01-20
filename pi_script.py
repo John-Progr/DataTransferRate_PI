@@ -64,7 +64,7 @@ class MqttDevice:
                 region = message.get("region")
                 wireless_channel = message.get("wireless_channel")
                 ip_client = message.get("ip_client")
-                previous_ip = message.get("previous_ip")
+                ip_previous = message.get("previous_ip")
                 self.dataTransferServer(wireless_channel, region, ip_client, ip_previous)
 
             elif role == "forwarder":
