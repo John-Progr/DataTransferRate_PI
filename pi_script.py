@@ -143,8 +143,22 @@ class MqttDevice:
             subprocess.run(["sudo", "iw", "reg", "set", region], check=True)
             print(f"[INFO] Set wireless region to: {region}")
 
+           
             # NEW: Apply channel immediately
             subprocess.run(["sudo", "iwconfig", "wlan0", "channel", str(wireless_channel)], check=True)
+            result = subprocess.run(
+                ["iwconfig", "wlan0"],
+                capture_output=True,
+                text=True
+            )
+
+            match = re.search(r"Channel:(\d+)", result.stdout)
+            if match:
+                current_channel = match.group(1)
+                print(f"[INFO] wlan0 is now on channel {current_channel}")
+            else:
+                print("[WARNING] Could not determine current wlan0 channel")
+
             """
             interfaces_file = "/etc/network/interfaces.d/wlan0"
             try:
@@ -200,6 +214,19 @@ class MqttDevice:
             print(f"[INFO] Set wireless region to: {region}")
 
             subprocess.run(["sudo", "iwconfig", "wlan0", "channel", str(wireless_channel)], check=True)
+
+            result = subprocess.run(
+                ["iwconfig", "wlan0"],
+                capture_output=True,
+                text=True
+            )
+
+            match = re.search(r"Channel:(\d+)", result.stdout)
+            if match:
+                current_channel = match.group(1)
+                print(f"[INFO] wlan0 is now on channel {current_channel}")
+            else:
+                print("[WARNING] Could not determine current wlan0 channel")
             """
             interfaces_file = "/etc/network/interfaces.d/wlan0"
             try:
@@ -241,6 +268,19 @@ class MqttDevice:
             print(f"[INFO] Set wireless region to: {region}")
 
             subprocess.run(["sudo", "iwconfig", "wlan0", "channel", str(wireless_channel)], check=True)
+
+            result = subprocess.run(
+                ["iwconfig", "wlan0"],
+                capture_output=True,
+                text=True
+            )
+
+            match = re.search(r"Channel:(\d+)", result.stdout)
+            if match:
+                current_channel = match.group(1)
+                print(f"[INFO] wlan0 is now on channel {current_channel}")
+            else:
+                print("[WARNING] Could not determine current wlan0 channel")
 
             """
             interfaces_file = "/etc/network/interfaces.d/wlan0"
