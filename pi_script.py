@@ -206,7 +206,6 @@ class MqttDevice:
                 print("[INFO] Enabled IP forwarding")
         
                 # ✅ Add route: server via next hop
-                print(f"[INFO] Adding route: server via {ip_routing}")
                 route_1_cmd = ["sudo", "ip", "route", "add", ip_server, "via", ip_next_routing]
                 route_2_cmd = ["sudo", "ip", "route", "add", ip_client, "via", ip_previous_routing]
                 result = subprocess.run(route_1_cmd, capture_output=True, text=True)
