@@ -63,14 +63,19 @@ class MqttDevice:
                 self.flush_routes()
                 region = message.get("region")
                 wireless_channel = message.get("wireless_channel")
-                self.dataTransferServer(wireless_channel, region)
+                ip_client = message.get("ip_client")
+                previous_ip = message.get("previous_ip")
+                self.dataTransferServer(wireless_channel, region, ip_client, ip_previous)
 
             elif role == "forwarder":
                 self.flush_routes()
                 region = message.get("region")
                 wireless_channel = message.get("wireless_channel")
-                ip_routing = message.get("ip_routing")
-                self.forwarder(wireless_channel, region, ip_routing)
+                ip_next_routing = message.get("ip_routing_next")
+                ip_previous_routing = message.get("ip_routing_previous")
+                ip_server = message.get("ip_server")
+                ip_client = message.get("ip_client")
+                self.forwarder(wireless_channel, region, ip_next_routing, ip_previous_routing, ip_server, ip_client)
 
             elif role == "client":
                 self.flush_routes()
@@ -136,14 +141,14 @@ class MqttDevice:
                 print(f"[ERROR] Failed to flush routes: {e}")
 
     
-    def dataTransferServer(self, wireless_channel, region):
+    def dataTransferServer(self, wireless_channel, region, ip_client, ip_previous):
         print("[INFO] Acting as receiver...")
 
         try:
+            subprocess.run(["sudo", "pkill", "-f", "iperf3.*-s"], check=False)
             subprocess.run(["sudo", "iw", "reg", "set", region], check=True)
             print(f"[INFO] Set wireless region to: {region}")
-
-           
+            
             # NEW: Apply channel immediately
             subprocess.run(["sudo", "iwconfig", "wlan0", "channel", str(wireless_channel)], check=True)
             result = subprocess.run(
@@ -151,48 +156,19 @@ class MqttDevice:
                 capture_output=True,
                 text=True
             )
+            print(result)
+            if ip_client =! "" and ip_previous != ""):
+                print(f"[INFO] Adding route: {ip_server} via {ip_previous}")
+                route_cmd = ["sudo", "ip", "route", "add", ip_client, "via", ip_previous]
+                result = subprocess.run(route_cmd, capture_output=True, text=True)
+                if result.returncode == 0:
+                    print("[INFO] Route added successfully")
+                else:
+                    print(f"[WARNING] Failed to add route: {result.stderr.strip()}")
 
-            match = re.search(r"Channel:(\d+)", result.stdout)
-            if match:
-                current_channel = match.group(1)
-                print(f"[INFO] wlan0 is now on channel {current_channel}")
-            else:
-                print("[WARNING] Could not determine current wlan0 channel")
-
-            """
-            interfaces_file = "/etc/network/interfaces.d/wlan0"
-            try:
-                with open(interfaces_file, "r") as f:
-                    lines = f.readlines()
-            except FileNotFoundError:
-                print(f"[WARNING] {interfaces_file} not found, skipping wireless channel update.")
-                lines = []
-
-            channel_line_index = None
-            channel_pattern = re.compile(r"^\s*wireless-channel\s+\d+", re.IGNORECASE)
-
-            for i, line in enumerate(lines):
-                if channel_pattern.match(line):
-                    channel_line_index = i
-                    break
-
-            new_line = f"   wireless-channel {wireless_channel}\n"  # ✅ fixed \n
-            if channel_line_index is not None:
-                lines[channel_line_index] = new_line
-            else:
-                lines.append(new_line)
-
-            with open(interfaces_file, "w") as f:
-                f.writelines(lines)
-            print(f"[INFO] Updated wireless-channel to {wireless_channel} in {interfaces_file}")
-
-            print("[INFO] Restarting wlan0 interface...")
-            subprocess.run(["sudo", "ifdown", "wlan0"], check=True)
-            subprocess.run(["sudo", "ifup", "wlan0"], check=True)
-            print("[INFO] wlan0 restarted")
-            """
+            
             subprocess.run(["sudo", "pkill", "-f", "iperf3.*-s"], check=False)
-            time.sleep(1)  # small delay to ensure the port is released
+            #time.sleep(1)  # small delay to ensure the port is released
 
             # subprocess.run(["iperf3", "-s"], check=True)
             self.current_role = "server"
@@ -206,58 +182,49 @@ class MqttDevice:
         except Exception as e:
             print(f"[ERROR] Unexpected error: {e}")
 
-    def forwarder(self, wireless_channel, region, ip_routing):
-        print("[INFO] Acting as forwarder...")
 
-        try:
-            subprocess.run(["sudo", "iw", "reg", "set", region], check=True)
-            print(f"[INFO] Set wireless region to: {region}")
 
-            subprocess.run(["sudo", "iwconfig", "wlan0", "channel", str(wireless_channel)], check=True)
-
-            result = subprocess.run(
-                ["iwconfig", "wlan0"],
-                capture_output=True,
-                text=True
-            )
-
-            match = re.search(r"Channel:(\d+)", result.stdout)
-            if match:
-                current_channel = match.group(1)
-                print(f"[INFO] wlan0 is now on channel {current_channel}")
-            else:
-                print("[WARNING] Could not determine current wlan0 channel")
-            """
-            interfaces_file = "/etc/network/interfaces.d/wlan0"
+    
+    def forwarder(self, wireless_channel, region, ip_next_routing, ip_previous_routing, ip_server, ip_client):
+            print("[INFO] Acting as forwarder...")
+        
             try:
-                with open(interfaces_file, "r") as f:
-                    lines = f.readlines()
-            except FileNotFoundError:
-                print(f"[WARNING] {interfaces_file} not found, skipping wireless channel update.")
-                lines = []
+                subprocess.run(["sudo", "iw", "reg", "set", region], check=True)
+                print(f"[INFO] Set wireless region to: {region}")
+        
+                subprocess.run(["sudo", "iwconfig", "wlan0", "channel", str(wireless_channel)], check=True)
+        
+                result = subprocess.run(
+                    ["iwconfig", "wlan0"],
+                    capture_output=True,
+                    text=True
+                )
+                print(result)
+    
+                # Enable forwarding
+                subprocess.run(["sudo", "sysctl", "-w", "net.ipv4.ip_forward=1"], check=True)
+                print("[INFO] Enabled IP forwarding")
+        
+                # ✅ Add route: server via next hop
+                print(f"[INFO] Adding route: server via {ip_routing}")
+                route_1_cmd = ["sudo", "ip", "route", "add", ip_server, "via", ip_next_routing]
+                route_2_cmd = ["sudo", "ip", "route", "add", ip_client, "via", ip_previous_routing]
+                result = subprocess.run(route_1_cmd, capture_output=True, text=True)
+                if result.returncode == 0:
+                    print("[INFO] Route added successfully")
+                else:
+                    print(f"[WARNING] Failed to add route: {result.stderr.strip()}")
+                result = subprocess.run(route_2_cmd, capture_output=True, text=True)
+                if result.returncode == 0:
+                    print("[INFO] Route added successfully")
+                else:
+                    print(f"[WARNING] Failed to add route: {result.stderr.strip()}")
+        
+            except subprocess.CalledProcessError as e:
+                print(f"[ERROR] Failed during forwarder setup: {e}")
+            except Exception as e:
+                print(f"[ERROR] Unexpected error: {e}")
 
-            channel_pattern = re.compile(r"^\s*wireless-channel\s+\d+", re.IGNORECASE)
-            new_line = f"   wireless-channel {wireless_channel}\n"
-            lines = [new_line if channel_pattern.match(line) else line for line in lines]
-            if all(not channel_pattern.match(line) for line in lines):
-                lines.append(new_line)
-
-            with open(interfaces_file, "w") as f:
-                f.writelines(lines)
-            print(f"[INFO] Updated wireless-channel to {wireless_channel} in {interfaces_file}")
-            """
-            # Enable forwarding
-            subprocess.run(["sudo", "sysctl", "-w", "net.ipv4.ip_forward=1"], check=True)
-            print("[INFO] Enabled IP forwarding")
-
-            subprocess.run(["sudo", "ifdown", "wlan0"], check=True)
-            subprocess.run(["sudo", "ifup", "wlan0"], check=True)
-            print("[INFO] wlan0 restarted")
-
-        except subprocess.CalledProcessError as e:
-            print(f"[ERROR] Failed during forwarder setup: {e}")
-        except Exception as e:
-            print(f"[ERROR] Unexpected error: {e}")
 
 
     def dataTransferClient(self, wireless_channel, region, ip_server, ip_routing):
@@ -274,34 +241,7 @@ class MqttDevice:
                 capture_output=True,
                 text=True
             )
-
-            match = re.search(r"Channel:(\d+)", result.stdout)
-            if match:
-                current_channel = match.group(1)
-                print(f"[INFO] wlan0 is now on channel {current_channel}")
-            else:
-                print("[WARNING] Could not determine current wlan0 channel")
-
-            """
-            interfaces_file = "/etc/network/interfaces.d/wlan0"
-            try:
-                with open(interfaces_file, "r") as f:
-                    lines = f.readlines()
-            except FileNotFoundError:
-                print(f"[WARNING] {interfaces_file} not found, skipping wireless channel update.")
-                lines = []
-
-            channel_pattern = re.compile(r"^\s*wireless-channel\s+\d+", re.IGNORECASE)
-            new_line = f"   wireless-channel {wireless_channel}\n"
-            lines = [new_line if channel_pattern.match(line) else line for line in lines]
-            if all(not channel_pattern.match(line) for line in lines):
-                lines.append(new_line)
-
-            with open(interfaces_file, "w") as f:
-                f.writelines(lines)
-            print(f"[INFO] Updated wireless-channel to {wireless_channel} in {interfaces_file}")
-
-            """
+            
             # ✅ Correct route: server via forwarder
             print(f"[INFO] Adding route: {ip_server} via {ip_routing}")
             route_cmd = ["sudo", "ip", "route", "add", ip_server, "via", ip_routing]
@@ -324,7 +264,7 @@ class MqttDevice:
                             check=True,
                             stdout=outfile
                         )
-            
+
                     print("[SUCCESS] iPerf3 test completed")
                     break  # ✅ stop retrying, continue function
             
