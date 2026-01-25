@@ -1,52 +1,94 @@
-# DataTransferRate_PI
-This is the script for measuring data transfer rate depending on the role of each node
-# DataTransferRate
-An api that when hit it will return the data transfer rate using iperf3 in multihop scenario inlcuding 4 raspberry pi and more (to be continued)
+# Dynamic Wireless Network Test Orchestrator (Raspberry Pi)
 
-Examining the scenario where we wont run olsr, so the routing tables won't be populated, we need to put fixed ips on the routing tables, wo we can measure data transfer rate by running iperf3 client/server. The keyword here is the multihop 
+## Overview
 
-So if a node is reachable from another node e.g. 192.168.2.10 ( iperf client) to 192.168.2.30 (iperf server) then iperf sends tcp packets and eventually the iperf client gets the measurements. But when we need multihop scenario we need to send from 192.168.2.10 to 192.168.2.30 via another node (or nodes) e.g. 192.168.2.20 (or 192.168.2.20 and 192.168.2.40). These nodes act as forwarders and they need to know where to send the packets to, so they need to check on routing tables
+This is a script meant to run on a Raspberry Pi which allows it to dynamically act as either a network client, server, or forwarder based on commands received over MQTT.
 
-Just a reminder:
+Its main purpose is to orchestrate wireless network performance tests using iPerf3, while dynamically configuring:
 
-client -> iperf3 -c 192.168.2.x
-server -> iperf3 -s
+1. Wi-Fi regulatory region (not all channels are permitted in a specific region)
+2. Wireless channel
+3. IP routing paths
+4. Traffic forwarding behavior
 
-We need to highlight this one:
+All coordination happens centrally via MQTT messages.
 
-If we dont run Olsrd or something similar ( ad hoc protocol) then each raspberry pi (node) won't forward packets so we need to enable /proc/sys/net/ipv4/ip_forward (this will reset to 0 when we restart, something solvable if we place it in rc.local or even edit the configuration to survive the reboot)
-We can check it by typing -> cat /proc/sys/net/ipv4/ip_forward
-We can enable it temporarily by typing -> sudo sysctl -w net.ipv4.ip_forward=1
+## High-Level Idea
 
+Each Raspberry Pi runs the same script, making it easy to massively deploy across a network.
 
-when we set up our raspberry pis we notice that if we type route -n all the routing tables are empty 
+A controller (or orchestrator) — in our case a Digital Twin Manager — publishes MQTT commands telling each Pi which role to assume:
 
-We can add an entry to the routing table wiritng -> sudo ip route add <destination-network> via <next-hop-ip> dev <interface> 
-dev <interface> can be ommitted though...
+- **Server** – runs `iperf3 -s`
+- **Client** – runs `iperf3 -c` and measures throughput
+- **Forwarder** – forwards traffic between client and server
 
+Once the test is finished, the client publishes telemetry results back to MQTT.
 
-![image](https://github.com/user-attachments/assets/cc5407c0-15b8-4b5e-b0e0-6b338595c390)
+## Roles Explanation
 
+### Server Role
 
-tcpdump is a great tool to start understanding how packets move in your network
+When this role is assigned, the Raspberry Pi:
 
-the easiest way to test it is by pinging a node that is within your reach 
+- Flushes old manual routes  
+  (for safety purposes we start clean each time)
+- Sets Wi-Fi regulatory region and channel
+- Adds a route to reach the client via the previous hop  
+  (or a previous forwarder)
+- Stops any currently running iPerf3 server
+- Starts a new iPerf3 server (`iperf3 -s`)
+- Waits until telemetry is received
+- Stops iPerf3 once the test is complete
 
-but there is a cath with the ping request ->
+### Client Role
 
+When acting as a client, the Raspberry Pi:
 
-i need to highlight for three nodes we dont need to put every fixed ip in the routing tables of each node...
-but we need to to be sure!
+- Flushes old routes
+- Sets Wi-Fi regulatory region and channel
+- Adds a route to the server  
+  (via a forwarder if needed)
+- Runs `iperf3 -c <server>` with JSON output enabled
+- Retries up to 3 times if iPerf fails
 
-also i noticed that the ip.forward =0/1 is buggy and we need to play with wlan0 enable/disable
+The retry mechanism is intentional. Because communication is asynchronous, a node may attempt to run iPerf before other nodes have finished configuring. Failures are expected until all nodes are ready.
 
-The idea is as follows:
-Each raspberry pi is active
-the input will be as follows -> PiSource,PiDest,OLSR=off/on,Path
+This approach works well for this experiment as it lowers message overhead on the control network. For other experiments, additional mechanisms such as QoS, acknowledgements, or explicit readiness responses may be required.
 
-api needs to send information o my raspberry pis
+- Extracts throughput metrics from iPerf3 output
+- Publishes telemetry results to MQTT
 
-This info includes 
-Preprocessing
+### Forwarder Role
 
-I send RaspberryPi source that i need you to run iperfclient and 
+When acting as a forwarder, the Raspberry Pi:
+
+- Flushes old routes
+- Sets Wi-Fi regulatory region and channel
+- Enables IP forwarding
+- Adds:
+  - A route to the server via the next hop
+  - A route to the client via the previous hop
+
+**Purpose:**  
+Act as a relay node in multi-hop wireless experiments.
+
+## Telemetry and Measurements
+
+- iPerf3 results are saved to `result.json`
+- The script extracts:
+  - Sent bits
+  - Received bits
+- Only received bits are published to MQTT, as this reflects what the server actually received
+
+In a non-perfect wireless ad-hoc network, sent and received values always differ slightly, and the received value is the metric of interest for these experiments.
+
+## Script Lifecycle
+
+1. Start script
+2. Connect to MQTT
+3. Wait for commands
+4. Reconfigure device dynamically
+5. Run iPerf test
+6. Send telemetry results
+7. Wait for next command
