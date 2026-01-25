@@ -4,17 +4,31 @@ import json
 import paho.mqtt.client as mqtt
 import subprocess
 import re
+from  dotenc import load_dotenv
+
+load_dotenv()
+
 
 class MqttDevice:
-    DEVICE_USERNAME = "pi"
-    DEVICE_PASSWORD = "auebiot123"
-    DEVICE_ID = "device1"
-    MQTT_BROKER_HOST = "192.168.0.120"
-    MQTT_BROKER_PORT = 1883
+    DEVICE_USERNAME = os.getenv("DEVICE_USERNAME")
+    DEVICE_PASSWORD = os.getenv("DEVICE_PASSWORD")
+    DEVICE_ID = os.getenv("DEVICE_ID")
+    MQTT_BROKER_HOST = os.getenv("MQTT_BROKER_HOST")
+    MQTT_BROKER_PORT = int(os.getenv("MQTT_BROKER_PORT", 1883))
 
     def __init__(self, logger=None):
+        required_vars = [
+            self.DEVICE_USERNAME,
+            self.DEVICE_PASSWORD,
+            self.DEVICE_ID,
+            self.MQTT_BROKER_HOST,
+            self.MQTT_BROKER_PORT,
+        ]
+        if any(v is None for v in required_vars):
+            raise EnvironmentError("Missing one or more required environment variables")
         self.logger = logger or logging.getLogger(__name__)
         logging.basicConfig(level=logging.INFO)
+        
 
         self.client = mqtt.Client()
         self.client.username_pw_set(
